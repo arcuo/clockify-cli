@@ -65,8 +65,8 @@ def check_duration_format(duration: str):
 
 
 def add_time_entry(
+    duration: str,
     workspace=None,
-    duration: str = None,
     description=None,
     billable="false",
     project=None,
@@ -272,7 +272,8 @@ def entries(workspace, info):
             click.echo(mes)
 
 
-@click.command("add_entry", short_help="Remove entry")
+@click.command("entry", short_help="Remove entry")
+@click.argument("-d", "--duration", type=str, default=None, help="Duration of entry in formats: h:m:s | h:m | h")
 @click.option(
     "-w",
     "--workspace",
@@ -281,12 +282,12 @@ def entries(workspace, info):
     default=None,
     help="Default is set with set_workspace",
 )
-@click.option("-d", "--description", type=str, default=None, help="Entry description")
+@click.option("--description", type=str, default=None, help="Entry description")
 @click.option("-b", "--billable", is_flag=True, default=False, help="Set if entry is billable")
 @click.option("--project", "-p", default=None, help="Project ID")
 @click.option("--tag", "-t", multiple=True, help="Multiple tags permitted")
 def add(workspace, description, billable, project, tag):
-    ret = add_time_entry(workspace, description, billable, project, list(tag))
+    ret = add_time_entry(workspace, duration, description, billable, project, list(tag))
     if VERBOSE:
         print_json(ret)
 
