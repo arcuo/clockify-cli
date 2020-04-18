@@ -1,5 +1,5 @@
 import requests, json, datetime, pytz
-import os, re
+import os, re, collections
 import click
 
 ENDPOINT = "https://api.clockify.me/api/v1"
@@ -209,10 +209,19 @@ def get_user():
 
 # Commands
 
-@click.group()
+class OrderedGroup(click.Group): # For commands to custom ordered.
+    def __init__(self, name=None, commands=None, **attrs):
+        super(OrderedGroup, self).__init__(name, commands, **attrs)
+        #: the registered subcommands by their exported names.
+        self.commands = commands or collections.OrderedDict()
+
+    def list_commands(self, ctx):
+        return self.commands
+
+@click.group(cls=OrderedGroup)
 @click.option("--verbose", is_flag=True, help="Enable verbose output")
 def cli(verbose):
-    "Clockify terminal app"
+    "A command line interface for the time tracker app Clockify."
     global CONFIG
     global VERBOSE
     VERBOSE = verbose
@@ -386,13 +395,13 @@ def in_progress(workspace):
 cli.add_command(start)
 cli.add_command(finish)
 cli.add_command(add)
+cli.add_command(entries)
 cli.add_command(projects)
 cli.add_command(workspaces)
 cli.add_command(s_workspace)
 cli.add_command(s_project)
-cli.add_command(entries)
-cli.add_command(remove_entry)
 cli.add_command(user)
+cli.add_command(remove_entry)
 cli.add_command(in_progress)
 
 
