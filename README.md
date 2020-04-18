@@ -1,22 +1,30 @@
 # Clockify-Cli
 A command line interface for the time tracker app [Clockify](https://clockify.me/). 
+
+Updated from [t5](https://github.com/t5/clockify-cli) to work with current API (April 2020).
+Added extra methods and removed password and email environment variables as these are not necessary.
+
 ## Usage 
 ```
 Usage: clockify [OPTIONS] COMMAND [ARGS]...
 
+  Clockify terminal app
+
 Options:
   --verbose  Enable verbose output
   --help     Show this message and exit.
-
 Commands:
-  add_project    Add a project
-  add_workspace  Add a workspace
-  entries        Show previous 10 time entries
-  finish         Finish an on-going time entry
-  projects       Show all projects
-  remove_entry   Remove entry
   start          Start a new time entry
+  finish         Finish an on-going time entry
+  entry          Add entry with duration
+  entries        Show previous 10 time entries
+  projects       Show all projects
   workspaces     Show all workspaces
+  set_workspace  Set the default workspace
+  set_project    Set the default project
+  user           Get user information
+  remove_entry   Remove entry
+  in-progress    Get timer in progress
 ```
 To access the usage help for the various subcommands:
 ```
@@ -33,8 +41,6 @@ Options:
 Move to the main directory that contains setup.py
 ```
 pip install -e .
-export CLOCKIFY_API_EMAIL=[your email]
-export CLOCKIFY_API_PASSWORD=[your password]
 ```
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
