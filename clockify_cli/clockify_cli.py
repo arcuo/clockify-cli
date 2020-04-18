@@ -1,25 +1,16 @@
 import requests, json, datetime
-import os, re
+import os, re, keyring
 import click
 
 ENDPOINT = "https://api.clockify.me/api/v1"
 VERBOSE = False
-CLOCKIFY_API_EMAIL = os.environ["CLOCKIFY_API_EMAIL"]
-CLOCKIFY_API_PASSWORD = os.environ["CLOCKIFY_API_PASSWORD"]
 config_file = os.path.expanduser("~/.clockify.cfg")
-CONFIG = {"api": "", "uid": "", "wid": "", "workspace": ""}
+CONFIG = {"api": "", "uid": "", "username": "", "wid": "", "workspace": "", "pid": "", "project": ""}
 headers = {"X-Api-Key": None}
 
 
 def set_api(api):
     headers["X-Api-Key"] = api
-
-
-def get_token():
-    body = {"email": CLOCKIFY_API_EMAIL, "password": CLOCKIFY_API_PASSWORD}
-    r = requests.post(ENDPOINT + "auth/token", headers=headers, json=body)
-    return r.json()
-
 
 def get_workspaces():
     r = requests.get(f"{ENDPOINT}/workspaces", headers=headers)
@@ -36,14 +27,16 @@ def print_json(inputjson):
     click.echo(json.dumps(inputjson, indent=2))
 
 
-def get_current_time():
+def get_time_format(time:datetime.datetime=None):
+    if time:
+        return str(time.isoformat()) + "Z"
     return str(datetime.datetime.now().isoformat()) + "Z"
 
 
 def start_time_entry(
     workspace=None, description=None, billable="false", project=None, tags=None
 ):
-    start = get_current_time()
+    start = get_time_format()
     workspaceId = get_workspaceId(workspace)
     body = {
         "start": start,
@@ -51,18 +44,29 @@ def start_time_entry(
         "description": description,
         "projectId": project,
         "taskId": None,
-        "tagIds": tag,
+        "tagIds": tags,
     }
     r = requests.post(
         f"{ENDPOINT}/workspaces/{workspaceId}/time-entries", headers=headers, json=body
     )
     return r.json()
 
-
 def check_duration_format(duration: str):
-    format = r"(\d{2}:?(\d{2})?:?(\d{2})?)"
-    print(re.match(format, duration))
-
+    format = r"^\d{1,2}$|^\d{1,2}:\d{1,2}$|^\d{1,2}:\d{1,2}:\d{1,2}$"
+    match = re.match(format, duration)
+    if match:
+        hms = list(map(lambda i: int(i), duration.split(':')))
+        if len(hms) == 1:
+            hms = [hms[0], 0, 0]
+        if len(hms) == 2:
+            hms = [hms[0], hms[1], 0]
+        if hms[1] > 59 or hms[2] > 59:
+            print("Incorrect minute or second format (too high)")
+            quit()
+        return hms
+    else:
+        print("Incorrect duration format. Must be with one or two digits h/hh -> h:m:s | h:m | h")
+        quit()
 
 def add_time_entry(
     duration: str,
@@ -72,22 +76,23 @@ def add_time_entry(
     project=None,
     tags=None,
 ):
-    start = get_current_time()
-    hms = duration.split(":")
-    end = start + datetime.timedelta()
+    end = datetime.datetime.now()
+    hms = check_duration_format(duration)
+    start = end - datetime.timedelta(hours=hms[0], minutes=hms[1], seconds=hms[2])
     workspaceId = get_workspaceId(workspace)
     body = {
-        "start": start,
+        "start": get_time_format(start),
+        "end": get_time_format(end),
         "billable": billable,
         "description": description,
-        "projectId": project,
+        "projectId": get_projectId(project),
         "taskId": None,
-        "tagIds": tag,
+        "tagIds": tags,
     }
-    # r = requests.post(
-    #     f"{ENDPOINT}/workspaces/{workspaceId}/time-entries", headers=headers, json=body
-    # )
-    return r.json()
+    r = requests.post(
+        f"{ENDPOINT}/workspaces/{workspaceId}/time-entries", headers=headers, json=body
+    )
+    return r.json(), r.status_code, start
 
 
 def get_in_progress(workspace):
@@ -108,7 +113,7 @@ def finish_time_entry(workspace):
         "projectId": current["projectId"],
         "taskId": current["taskId"],
         "tagIds": current["tagIds"],
-        "end": get_current_time(),
+        "end": get_time_format(),
     }
     r = requests.put(
         ENDPOINT + f"workspaces/{workspace}/timeEntries/{current_id}",
@@ -126,6 +131,12 @@ def get_time_entries(workspace=None):
     )
     return r.json()[:10]
 
+def remove_time_entry(tid, workspace=None):
+    workspaceId = get_workspaceId(workspace)
+    r = requests.delete(
+        f"{ENDPOINT}/workspaces/{workspaceId}/time-entries/{tid}", headers=headers
+    )
+    return r
 
 def get_workspaceId(workspace=None):
     if workspace:
@@ -136,14 +147,6 @@ def get_workspaceId(workspace=None):
         else:
             return set_workspace()[1]
     return workspaceId
-
-
-def remove_time_entry(workspace, tid):
-    r = requests.delete(
-        ENDPOINT + f"workspaces/{workspace}/timeEntries/{tid}", headers=headers
-    )
-    return r.json()
-
 
 def set_workspace(workspace=None):
     if not workspace:
@@ -156,6 +159,28 @@ def set_workspace(workspace=None):
         json.dump(CONFIG, f)
 
     return workspace, workspaceId
+
+def get_projectId(project=None):
+    if project:
+        projectId = get_projects()[project]
+    else:
+        if CONFIG["pid"] != "":
+            projectId = CONFIG["pid"]
+        else:
+            return set_project()[1]
+    return projectId
+
+def set_project(project=None):
+    if not project:
+        project = click.prompt("Project name")
+    projectId = get_projects()[project]
+    CONFIG["pid"] = projectId
+    CONFIG["project"] = project
+    # Save config
+    with open(config_file, "w") as f:
+        json.dump(CONFIG, f)
+
+    return project, projectId
 
 
 def get_user():
@@ -181,6 +206,7 @@ def cli(verbose):
         set_api(api)
         user = get_user()
         CONFIG["uid"] = user["id"]
+        CONFIG["username"] = user["name"]
         with open(config_file, "w") as f:
             json.dump(CONFIG, f)
 
@@ -210,8 +236,9 @@ def finish(workspace):
 @click.command("user", short_help="Get user information")
 def user():
     user = get_user()
+    if VERBOSE:
+        print_json(user)
     click.echo(f"{user['id']}: {user['name']}")
-
 
 @click.command("projects", short_help="Show all projects")
 @click.option("-w", "--workspace", "workspace", type=str, default=None)
@@ -265,15 +292,15 @@ def entries(workspace, info):
             )
             if info:
                 mes += (
-                    f", Description: {entry['description']}"
+                    f", Description: {entry['description']}, "
                     + f"End: {entry['timeInterval']['end']}, "
                     + f"ID: {entry['id']}"
                 )
             click.echo(mes)
 
 
-@click.command("entry", short_help="Remove entry")
-@click.argument("-d", "--duration", type=str, default=None, help="Duration of entry in formats: h:m:s | h:m | h")
+@click.command("entry", short_help="Add entry with duration")
+@click.argument("duration", type=str)
 @click.option(
     "-w",
     "--workspace",
@@ -282,32 +309,36 @@ def entries(workspace, info):
     default=None,
     help="Default is set with set_workspace",
 )
-@click.option("--description", type=str, default=None, help="Entry description")
+@click.option("-d", "--description", type=str, default=None, help="Entry description")
 @click.option("-b", "--billable", is_flag=True, default=False, help="Set if entry is billable")
 @click.option("--project", "-p", default=None, help="Project ID")
 @click.option("--tag", "-t", multiple=True, help="Multiple tags permitted")
-def add(workspace, description, billable, project, tag):
-    ret = add_time_entry(workspace, duration, description, billable, project, list(tag))
-    if VERBOSE:
-        print_json(ret)
-
-
-def remove_entry(workspace, tid):
-    ret = remove_time_entry(workspace, tid)
+@click.option("-i", "--info", "info", is_flag="True")
+def add(workspace, duration, description, billable, project, tag, info):
+    ret, status, start = add_time_entry(duration, workspace, description, billable, project, list(tag))
+    if status == 201:
+        click.echo(f'Successfully added time entry with start {start.strftime("%d/%b/%Y")} and duration {duration}.')
+        if info:
+            click.echo(f'User: {CONFIG["username"]}, Workspace: {CONFIG["workspace"]}, Project: {CONFIG["project"]}.')
+    else:
+        click.echo(f'Failed time entry with status {status}')
     if VERBOSE:
         print_json(ret)
 
 
 @click.command("remove_entry", short_help="Remove entry")
-@click.argument("workspace")
-@click.argument("time entry ID")
-def remove_entry(workspace, tid):
-    ret = remove_time_entry(workspace, tid)
-    if VERBOSE:
-        print_json(ret)
+@click.argument("timeEntryId")
+@click.option("-w", "--workspace", "workspace", type=str, default=None)
+def remove_entry(timeentryid, workspace):
+    ret = remove_time_entry(timeentryid, workspace)
+    if ret.ok:
+        click.echo(f'Removed entry {timeentryid}')
+    else:
+        click.echo(f'Failed to remove entry {timeentryid} with status {ret.status_code}')
 
 cli.add_command(start)
 cli.add_command(finish)
+cli.add_command(add)
 cli.add_command(projects)
 cli.add_command(workspaces)
 cli.add_command(s_workspace)
