@@ -33,6 +33,9 @@ def get_projects(workspace=None):
 def print_json(inputjson):
     click.echo(json.dumps(inputjson, indent=2))
 
+def get_timezone_offset_string():
+    return datetime.datetime.now(pytz.timezone(CONFIG['timezone'])).strftime('%z')
+
 def get_time_format(time: datetime.datetime = None):
     timediff = pytz.timezone(CONFIG["timezone"]).utcoffset(datetime.datetime.now())
     if time:
@@ -142,7 +145,7 @@ def finish_time_entry(workspace):
         headers=headers,
         json=body,
     )
-    return r.json()
+    return r.json(), r.status_code
 
 def get_time_entries(workspace=None):
     workspaceId = get_workspaceId(workspace)
@@ -265,7 +268,12 @@ def start(workspace, description, billable, project, tag):
 @click.command("finish", short_help="Finish an on-going time entry")
 @click.option("-w", "--workspace", "workspace", type=str, default=None)
 def finish(workspace):
-    ret = finish_time_entry(workspace)
+    ret, status = finish_time_entry(workspace)
+    if status == 200:
+        click.echo(
+            f'Finished timer for {CONFIG["username"]} on Workspace: {CONFIG["workspace"]} with Project: {CONFIG["project"]}' +\
+            f' with Duration: {re.sub("PT", "", ret["timeInterval"]["duration"])}'
+        )
     if VERBOSE:
         print_json(ret)
 
@@ -331,13 +339,13 @@ def entries(workspace, info):
     else:
         for entry in data:
             mes = (
-                f"Start: {entry['timeInterval']['start']}, "
+                f"Start: {entry['timeInterval']['start']}{get_timezone_offset_string()}, "
                 + f"Duration: {re.sub('PT', '', entry['timeInterval']['duration'])}"
             )
             if info:
                 mes += (
                     f", Description: {entry['description']}, "
-                    + f"End: {entry['timeInterval']['end']}, "
+                    + f"End: {entry['timeInterval']['end']}{get_timezone_offset_string()}, "
                     + f"ID: {entry['id']}"
                 )
             click.echo(mes)
@@ -387,7 +395,8 @@ def remove_entry(timeentryid, workspace):
 @click.option("-w", "--workspace", "workspace", type=str, default=None)
 def in_progress(workspace):
     ret = get_in_progress(workspace)
-    click.echo(f"Current time entry: {ret['id']} started {ret['timeInterval']['start']}")
+    duration = datetime.datetime.now(tz=pytz.timezone(CONFIG['timezone'])) - datetime.datetime.strptime(f"{ret['timeInterval']['start']}+0000", '%Y-%m-%dT%H:%M:%SZ%z') 
+    click.echo(f"Current time entry: {ret['id']} started {ret['timeInterval']['start']}{get_timezone_offset_string()}, Duration: {str(duration)}")
     if VERBOSE:
         print_json(ret)
 
