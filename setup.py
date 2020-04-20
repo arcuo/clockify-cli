@@ -1,9 +1,15 @@
 from setuptools import setup
 
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
 setup(
     name='clockify_cli',
     version='1.10',
     py_modules=['clockify_cli'],
+    description='Clockify.me terminal interface',
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     author='Benjamin Zachariae',
     url='https://github.com/arcuo/clockify-cli',
     install_requires=[
@@ -14,6 +20,11 @@ setup(
         'requests==2.23.0',
         'urllib3==1.25.9',
         'pytz==2019.3',
+    ],
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: MIT License",
+        "Operating System :: OS Independent",
     ],
     entry_points='''
         [console_scripts]
